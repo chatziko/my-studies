@@ -10,12 +10,13 @@ use IO::Handle;
 
 
 
-my ($username, $password, $course_id, $grades);
+my ($username, $password, $course_id, $grades, $ignore_missing);
 GetOptions(
 	"username=s"	=> \$username,
 	"password=s"	=> \$password,
 	"course-id=s"	=> \$course_id,
 	"grades=s"		=> \$grades,
+	"ignore-missing"=> \$ignore_missing,
 ) or exit 1;
 my $command = shift @ARGV;
 $command ~~ [qw/set-grades verify-grades/]	or die "valid commands: set-grades verify-grades\n";
@@ -107,7 +108,7 @@ sub set_grade {
 	$html =~ /$student_id/ && $html !~ /ctl04/									or die "$html\n\ninvalid html: not filtered";
 
 	# check current grade
- 	$html =~ /name="dataGrid\$ctl03\$txtGrade" type="text" (value="(.*?)")?/	or warn("student $student_id not found\n"), return;
+ 	$html =~ /name="dataGrid\$ctl03\$txtGrade" type="text" (value="(.*?)")?/	or warn("student $student_id not found in my-studies\n"), return $ignore_missing;
 	my $current = $2 // "";
 	$current ne $grade															or warn("student $student_id already has grade '$grade'\n"), return 1;
 
