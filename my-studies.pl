@@ -19,12 +19,12 @@ GetOptions(
 	"ignore-missing"=> \$ignore_missing,
 ) or exit 1;
 my $command = shift @ARGV;
-$command ~~ [qw/set-grades verify-grades/]	or die "valid commands: set-grades verify-grades\n";
+my @valid_commands = qw/set-grades verify-grades clear-grades export-grades/;
+$command ~~ @valid_commands	or die "valid commands: @valid_commands\n";
 
 !@ARGV			or die "too many options";
 $username		or die "no username\n";
 $course_id		or die "no course id\n";
-$grades			or die "no --grades=...\n";
 if(!$password) {
 	print "my-studies password: ";
 	STDOUT->flush();
@@ -34,27 +34,6 @@ if(!$password) {
 	print "\n\n";
 	$password	or die "no password\n";
 }
-
-# read/ grades
-my @grades;
-open F, "< $grades"		or die "cannot open $grades\n";
-while(<F>) {
-	chomp;
-	next if	/^\s*$|^#/;
-
-	/^(\d+),([\d,.]*)$/	or die "invalid line $_\n";
-	my ($id, $grade) = ($1, $2);
-
-	$id = "111520$id"	if length($id) == 7;
-	length($id) == 13	or die "invalid id: $id\n";
-
-	$grade =~ s/,/\./;
-	$grade eq "" || ($grade >= 0 && $grade <= 10)	or die "invalid grade: $grade\n";
-	$grade =~ s/\./,/;		# my-studies likes commas
-
-	push @grades, [$id, $grade];
-}
-
 
 
 my %urls = (
@@ -81,19 +60,77 @@ my $marksheet_code = $1;
 # after this the server will remember the selected marksheet_code
 $res = $ua->get($urls{marksheet} . $marksheet_code);
 
+# run command
+set_or_verify_grades()	if $command ~~ [qw/set-grades verify-grades/];
+clear_grades()			if $command eq 'clear-grades';
+export_grades()			if $command eq 'export-grades';
 
 
-for(@grades) {
-	set_grade(@$_)	or die "\n ---- FAILED ---- \n";
+
+sub clear_grades {
+	my $existing = load_non_empty();
+
+	for(keys %$existing) {
+		set_grade($_, '')	or die "\n ---- FAILED ---- \n";
+	}
+
+	print "\ncleared " . scalar(keys %$existing) . " grades\n";
 }
 
-# check number
-load_sheetfill(cmdFilter => '');
-my $html = load_sheetfill(ddStuOnPage => 'ALL');	# load all
-my @total = $html =~ /(name="dataGrid\$ctl\d+?\$txtGrade" type="text" value=".+?")/g;
-my $grades_nonempty = grep { $_->[1] ne "" } @grades;
-print "\n", (@total != $grades_nonempty ? "WARNING: " : ""), "students with non-empty grades: my-studies: ", scalar(@total), ", $grades: $grades_nonempty\n";
+sub export_grades {
+	$grades					or die "no --grades=...\n";
+	! -f $grades				or die "$grades exists";
+	open F, "> $grades"		or die "cannot open $grades\n";
 
+	my $existing = load_non_empty();
+	for(keys %$existing) {
+		print F "$_,$existing->{$_}\n";
+	}
+	close F;
+
+	print "\nexported " . scalar(keys %$existing) . " grades to $grades\n";
+}
+
+sub set_or_verify_grades {
+	# read grades
+	$grades					or die "no --grades=...\n";
+	open F, "< $grades"		or die "cannot open $grades\n";
+
+	my @grades;
+	while(<F>) {
+		chomp;
+		next if	/^\s*$|^#/;
+
+		/^(\d+),([\d,.]*)$/	or die "invalid line $_\n";
+		my ($id, $grade) = ($1, $2);
+
+		$id = "111520$id"	if length($id) == 7;
+		length($id) == 13	or die "invalid id: $id\n";
+
+		$grade =~ s/,/\./;
+		$grade eq "" || ($grade >= 0 && $grade <= 10)	or die "invalid grade: $grade\n";
+		$grade =~ s/\./,/;		# my-studies likes commas
+
+		push @grades, [$id, $grade];
+	}
+
+	for(@grades) {
+		set_grade(@$_)	or die "\n ---- FAILED ---- \n";
+	}
+
+	# check number
+	my $total = keys %{ load_non_empty() };
+	my $grades_nonempty = grep { $_->[1] ne "" } @grades;
+	print "\n", ($total != $grades_nonempty ? "WARNING: " : ""), "students with non-empty grades: my-studies: $total, $grades: $grades_nonempty\n";
+}
+
+
+# returns a hash { id => grade } of all non-empty grades from my-studies
+sub load_non_empty {
+	load_sheetfill(cmdFilter => '');
+	my $html = load_sheetfill(ddStuOnPage => 'ALL');	# load all
+	return { $html =~ m|(1115\d{9}).*\r\s+<input name="dataGrid\$ctl\d+?\$txtGrade" type="text" value="(.+?)"|g };
+}
 
 sub set_grade {
 	my ($student_id, $grade) = @_;
@@ -112,7 +149,7 @@ sub set_grade {
 	my $current = $2 // "";
 	$current ne $grade															or warn("student $student_id already has grade '$grade'\n"), return 1;
 
-	$command eq 'set-grades'													or warn("verify-grades: student $student_id has incorrect grade '$current' instead of '$grade'\n"), return;
+	$command eq 'verify-grades'													and warn("verify-grades: student $student_id has incorrect grade '$current' instead of '$grade'\n"), return;
 
 	# load again, this time setting the new grade
 	$html = load_sheetfill(
