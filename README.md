@@ -3,7 +3,7 @@
 Script για μαζική εισαγωγή βαθμών στο `my-studies.uoa.gr`.
 
 ```
-perl mystudies.pl [command] [options]
+perl my-studies.pl [command] [options]
 
 Commands:
     set-grades        Αλλαγή βαθμών
