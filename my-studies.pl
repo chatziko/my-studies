@@ -4,16 +4,18 @@ use feature 'state';
 use experimental 'smartmatch';
 
 use LWP::UserAgent;
+# use LWP::ConsoleLogger::Everywhere ();	# for debugging
 use Getopt::Long;
 use Data::Dumper;
 use IO::Handle;
 
 
 
-my ($username, $password, $course_id, $grades, $ignore_missing);
+my ($username, $password, $session_id, $course_id, $grades, $ignore_missing);
 GetOptions(
 	"username=s"	=> \$username,
 	"password=s"	=> \$password,
+	"session-id=s"	=> \$session_id,
 	"course-id=s"	=> \$course_id,
 	"grades=s"		=> \$grades,
 	"ignore-missing"=> \$ignore_missing,
@@ -23,16 +25,18 @@ my @valid_commands = qw/set-grades verify-grades clear-grades export-grades/;
 $command ~~ @valid_commands	or die "valid commands: @valid_commands\n";
 
 !@ARGV			or die "too many options";
-$username		or die "no username\n";
 $course_id		or die "no course id\n";
-if(!$password) {
-	print "my-studies password: ";
-	STDOUT->flush();
-	system('stty', '-echo');
-	chop($password=<STDIN>);
-	system('stty', 'echo');
-	print "\n\n";
-	$password	or die "no password\n";
+if(!$session_id) {
+	$username		or die "no username\n";
+	if(!$password) {
+		print "my-studies password: ";
+		STDOUT->flush();
+		system('stty', '-echo');
+		chop($password=<STDIN>);
+		system('stty', 'echo');
+		print "\n\n";
+		$password	or die "no password\n";
+	}
 }
 
 
@@ -47,12 +51,17 @@ my %urls = (
 my $ua = LWP::UserAgent->new;		# ssl_opts => { verify_hostname => 0, SSL_verify_mode => 0, SSL_version => 'TLSv1', });
 $ua->cookie_jar({});				# store/use cookies
 
-my $res = $ua->post($urls{login}, [
-	username => $username,
-	password => $password
-]);
+if($session_id) {
+	$ua->cookie_jar->set_cookie(0, 'UoASWASessID', $session_id, '/', 'my-studies.uoa.gr');
 
-$res = $ua->get($urls{courses});
+} else {
+	$ua->post($urls{login}, [
+		username => $username,
+		password => $password,
+	]);
+}
+
+my $res = $ua->get($urls{courses});
 $res->is_success && $res->content !~ /top.window.location.href='\/Secr3w'/		or die "incorrect password\n";
 $res->content =~ /(\d+)_$course_id/												or die "course $course_id not found\n";
 my $marksheet_code = $1;
