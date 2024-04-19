@@ -4,6 +4,7 @@ use feature 'state';
 use experimental 'smartmatch';
 
 use LWP::UserAgent;
+use LWP::Protocol::https;					# ensure we have https support
 # use LWP::ConsoleLogger::Everywhere ();	# for debugging
 use Getopt::Long;
 use Data::Dumper;
